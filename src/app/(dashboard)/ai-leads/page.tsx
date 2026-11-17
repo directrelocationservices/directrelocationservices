@@ -1,6 +1,7 @@
 // File: src/app/(dashboard)/ai-leads/page.tsx  (REPLACE existing file)
 // Leads list: archived leads hidden (Archived tab), "Test" tab and tag, stats leave out test + archived leads
 // + Opt-outs card: opt-out rate by lead source and by follow-up attempt
+// + Date filters (Today, This week, This month, Last month, Custom) with compare to previous period
 
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -21,6 +22,7 @@ import {
   moveLine,
 } from "./_components/ui";
 import { DetailsMenu } from "./_components/details-menu";
+import { RANGES, change, rangeArgs, resolveRange } from "./date-range";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -142,10 +144,23 @@ function TestTag() {
 export default async function AiLeadsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; q?: string }>;
+  searchParams: Promise<{ status?: string; q?: string; range?: string; from?: string; to?: string; compare?: string }>;
 }) {
-  const { status = "all", q = "" } = await searchParams;
+  const { status = "all", q = "", range = "all", from = "", to = "", compare = "" } = await searchParams;
   const supa = db();
+  const R = resolveRange(range, from, to);
+  const comparing = compare === "1" && R.previous !== null;
+
+  /** Link to this page, keeping the current filters and changing only what is passed. */
+  const href = (change: Record<string, string>) => {
+    const p = new URLSearchParams();
+    const all: Record<string, string> = { status, q, range: R.key === "all" && range !== "custom" ? "" : range, from: R.key === "custom" ? R.fromInput : "", to: R.key === "custom" ? R.toInput : "", compare: comparing ? "1" : "", ...change };
+    Object.entries(all).forEach(([k, v]) => {
+      if (v && !(k === "status" && v === "all")) p.set(k, v);
+    });
+    const qs = p.toString();
+    return `/ai-leads${qs ? `?${qs}` : ""}`;
+  };
 
   let query = supa
     .from("v_ai_leads")
@@ -157,6 +172,9 @@ export default async function AiLeadsPage({
   if (status === "live") query = query.in("status", LIVE);
   else if (status === "test") query = query.eq("is_test", true);
   else if (status !== "all" && status !== "archived") query = query.eq("status", status);
+  if (R.current) {
+    query = query.gte("created_at", R.current.from.toISOString()).lt("created_at", R.current.to.toISOString());
+  }
   if (q.trim()) {
     const term = q.trim().replace(/[%,()]/g, "");
     const digits = term.replace(/\D/g, "");
@@ -165,17 +183,21 @@ export default async function AiLeadsPage({
     );
   }
 
-  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes] = await Promise.all([
-    supa.from("v_ai_metrics").select("*").single<Metrics>(),
-    supa.from("v_ai_source_report").select("*").returns<SourceRow[]>(),
+  const cur = rangeArgs(R.current);
+  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes, prevRes] = await Promise.all([
+    supa.rpc("ai_metrics_range", cur).single(),
+    supa.rpc("ai_source_report_range", cur),
     query.returns<LeadRow[]>(),
     supa
       .from("ai_settings")
       .select("ai_enabled")
       .eq("id", 1)
       .single<{ ai_enabled: boolean }>(),
-    supa.from("v_ai_optout_by_source").select("*").returns<OptOutSourceRow[]>(),
-    supa.from("v_ai_optout_by_attempt").select("*").returns<OptOutAttemptRow[]>(),
+    supa.rpc("ai_optout_by_source_range", cur),
+    supa.rpc("ai_optout_by_attempt_range", cur),
+    comparing
+      ? supa.rpc("ai_metrics_range", rangeArgs(R.previous)).single()
+      : Promise.resolve({ data: null as Metrics | null, error: null }),
   ]);
 
   const errors = [
@@ -185,21 +207,23 @@ export default async function AiLeadsPage({
     settingsRes.error,
     optSrcRes.error,
     optAttRes.error,
+    prevRes.error,
   ]
     .filter((e) => e !== null)
     .map((e) => e.message);
-  const m = metricsRes.data;
-  const sources = sourcesRes.data ?? [];
+  const m = metricsRes.data as Metrics | null;
+  const prev = comparing ? (prevRes.data as Metrics | null) : null;
+  const sources = (sourcesRes.data ?? []) as SourceRow[];
   const leads = leadsRes.data ?? [];
   const aiEnabled = settingsRes.data?.ai_enabled;
-  const optBySource = optSrcRes.data ?? [];
-  const optByAttempt = (optAttRes.data ?? []).filter((r) => r.reached > 0);
+  const optBySource = (optSrcRes.data ?? []) as OptOutSourceRow[];
+  const optByAttempt = ((optAttRes.data ?? []) as OptOutAttemptRow[]).filter((r) => r.reached > 0);
   const optTotal = optBySource.reduce((n, r) => n + r.opted_out, 0);
   const optContacted = optBySource.reduce((n, r) => n + r.contacted, 0);
   const optMaxPct = Math.max(1, ...optByAttempt.map((r) => r.opt_out_pct ?? 0));
-  const filtered = q.trim() !== "" || status !== "all";
-  const tabHref = (key: string) =>
-    `/ai-leads?status=${key}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const filtered = q.trim() !== "" || status !== "all" || R.current !== null;
+  const tabHref = (key: string) => href({ status: key });
+  const activeRange = range === "custom" ? "custom" : R.key;
   const moreActive = MAIN_TABS.includes(status)
     ? undefined
     : FILTERS.find((f) => f.key === status);
@@ -212,6 +236,7 @@ export default async function AiLeadsPage({
     value: number;
     pct: number;
     note: string;
+    prev?: number;
     color: string;
     tint: string;
     bar: string;
@@ -220,6 +245,7 @@ export default async function AiLeadsPage({
     {
       label: "New leads",
       value: total,
+      prev: prev?.leads_total,
       pct: total ? 100 : 0,
       note: `${m?.leads_active ?? 0} in progress right now`,
       color: "text-[#1E1E1E]",
@@ -232,6 +258,7 @@ export default async function AiLeadsPage({
     {
       label: "Contacted",
       value: m?.contacted ?? 0,
+      prev: prev?.contacted ?? undefined,
       pct: share(m?.contacted ?? 0),
       note: `${share(m?.contacted ?? 0)}% of all leads`,
       color: "text-[#D97706]",
@@ -244,6 +271,7 @@ export default async function AiLeadsPage({
     {
       label: "Said yes",
       value: m?.opted_in ?? 0,
+      prev: prev?.opted_in,
       pct: share(m?.opted_in ?? 0),
       note: `${share(m?.opted_in ?? 0)}% of all leads`,
       color: "text-[#E10600]",
@@ -254,8 +282,9 @@ export default async function AiLeadsPage({
     {
       label: "Transferred live",
       value: m?.transferred ?? 0,
+      prev: prev?.transferred,
       pct: share(m?.transferred ?? 0),
-      note: `${m?.conversion_pct ?? 0}% conversion`,
+      note: `${m?.conversion_pct ?? 0}% conversion${prev ? ` (was ${prev.conversion_pct ?? 0}%)` : ""}`,
       color: "text-[#16A34A]",
       tint: "bg-[#E7F6EC]",
       bar: "bg-[#16A34A]",
@@ -268,7 +297,7 @@ export default async function AiLeadsPage({
   const facts = [
     {
       label: "Avg. time to live call",
-      value: fmtDuration(m?.avg_seconds_to_connect),
+      value: fmtDuration(m?.avg_seconds_to_connect) + (prev ? ` (was ${fmtDuration(prev.avg_seconds_to_connect)})` : ""),
       dot: "bg-[#1E1E1E]",
     },
     {
@@ -300,7 +329,59 @@ export default async function AiLeadsPage({
       hero={
         <HeroTitle
           title="Leads"
-          description="Every lead the AI is texting and calling, newest first. Times are Eastern. Test and archived leads are not counted in the numbers."
+          description={`Every lead the AI is texting and calling, newest first. Times are Eastern. Test and archived leads are not counted in the numbers. Showing: ${R.label}${comparing ? `, compared with ${R.previousLabel}` : ""}.`}
+          actions={
+            <div className="flex w-full flex-col items-start gap-2.5 md:w-auto md:items-end">
+              <nav className="flex flex-wrap gap-1 rounded-xl bg-white/10 p-1" aria-label="Date range">
+                {RANGES.map((r) => {
+                  const on = activeRange === r.key;
+                  return (
+                    <Link
+                      key={r.key}
+                      href={href({ range: r.key === "all" ? "" : r.key, from: "", to: "", compare: r.key === "all" ? "" : comparing ? "1" : "" })}
+                      aria-current={on ? "page" : undefined}
+                      className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
+                        on ? "bg-white text-[#1E1E1E] shadow-sm" : "text-white/70 hover:bg-white/10 hover:text-white"
+                      }`}
+                    >
+                      {r.label}
+                    </Link>
+                  );
+                })}
+              </nav>
+              {activeRange === "custom" && (
+                <form action="/ai-leads" className="flex flex-wrap items-center gap-2">
+                  <input type="hidden" name="range" value="custom" />
+                  {status !== "all" && <input type="hidden" name="status" value={status} />}
+                  {q && <input type="hidden" name="q" value={q} />}
+                  {comparing && <input type="hidden" name="compare" value="1" />}
+                  <label className="sr-only" htmlFor="range-from">From</label>
+                  <input id="range-from" type="date" name="from" defaultValue={R.fromInput} required className="rounded-lg border-0 bg-white px-2.5 py-1.5 text-sm text-[#1E1E1E]" />
+                  <span className="text-sm text-white/60">to</span>
+                  <label className="sr-only" htmlFor="range-to">To</label>
+                  <input id="range-to" type="date" name="to" defaultValue={R.toInput} required className="rounded-lg border-0 bg-white px-2.5 py-1.5 text-sm text-[#1E1E1E]" />
+                  <button type="submit" className="rounded-lg bg-[#E10600] px-3.5 py-1.5 text-sm font-bold text-white hover:bg-[#C00500]">
+                    Apply
+                  </button>
+                </form>
+              )}
+              {R.current && (
+                <Link
+                  href={href({ compare: comparing ? "" : "1" })}
+                  className="inline-flex items-center gap-2 text-sm font-semibold text-white/80 hover:text-white"
+                >
+                  <span className={`grid h-4 w-4 place-items-center rounded border ${comparing ? "border-white bg-white text-[#1E1E1E]" : "border-white/50"}`}>
+                    {comparing && (
+                      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M20 6L9 17l-5-5" />
+                      </svg>
+                    )}
+                  </span>
+                  Compare to previous period ({R.previousLabel})
+                </Link>
+              )}
+            </div>
+          }
         />
       }
     >
@@ -336,6 +417,19 @@ export default async function AiLeadsPage({
             >
               {s.value.toLocaleString()}
             </p>
+            {s.prev !== undefined && (() => {
+              const c = change(s.value, s.prev);
+              if (!c) return null;
+              return (
+                <p className="mt-1 text-xs font-semibold">
+                  <span className={c.up === null ? "text-[#737373]" : c.up ? "text-[#16A34A]" : "text-[#E10600]"}>
+                    {c.up === null ? "" : c.up ? "▲ " : "▼ "}
+                    {c.text}
+                  </span>
+                  <span className="font-medium text-[#A3A3A3]"> vs {s.prev.toLocaleString()} before</span>
+                </p>
+              );
+            })()}
             <div
               className={`mt-4 h-1.5 overflow-hidden rounded-full ${s.tint}`}
             >
@@ -383,7 +477,7 @@ export default async function AiLeadsPage({
       {/* Opt-outs */}
       <Card
         title="Opt-outs"
-        description={`${optTotal} of ${optContacted} contacted leads opted out${optContacted ? ` (${Math.round((optTotal / optContacted) * 1000) / 10}%)` : ""}. Test and archived leads are not counted.`}
+        description={`${R.current ? `${R.label}: ` : ""}${optTotal} of ${optContacted} contacted leads opted out${optContacted ? ` (${Math.round((optTotal / optContacted) * 1000) / 10}%)` : ""}. Test and archived leads are not counted.`}
         className="mb-6"
       >
         {optContacted === 0 ? (
