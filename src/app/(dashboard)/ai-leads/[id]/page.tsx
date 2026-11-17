@@ -1,11 +1,12 @@
 // File: src/app/(dashboard)/ai-leads/[id]/page.tsx  (REPLACE existing file)
-// Lead page: adds a "Re-enable" card for opted-out numbers (uses ../optin-actions.ts)
+// Lead page: Re-enable card for opted-out numbers, plus "Test & archive" card (mark as test, archive, delete)
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/ai-leads/supabase";
 import { manualOptOut } from "../actions";
 import { manualOptIn } from "../optin-actions";
+import { archiveLead, deleteLead, setTestLead } from "../lead-admin-actions";
 import {
   Avatar,
   Card,
@@ -159,6 +160,16 @@ export default async function LeadDetailPage({
         <span className="flex flex-wrap items-center gap-3">
           {name}
           <StatusBadge status={lead.status} pref={lead.contact_preference} />
+          {lead.is_test && (
+            <span className="rounded-md bg-[#EDE9FE] px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-[#5B21B6]">
+              Test
+            </span>
+          )}
+          {lead.archived_at && (
+            <span className="rounded-md bg-white/15 px-2 py-0.5 text-xs font-bold uppercase tracking-wide text-white">
+              Archived
+            </span>
+          )}
         </span>
       }
       description={
@@ -366,6 +377,52 @@ export default async function LeadDetailPage({
               </form>
             </Card>
           )}
+
+          <Card title="Test & archive">
+            <div className="space-y-4 px-5 py-4">
+              <p className="text-sm text-[#737373]">
+                Test and archived leads are not counted in the dashboard numbers. Archiving also cancels every
+                scheduled text and call for this lead.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <form action={setTestLead}>
+                  <input type="hidden" name="leadId" value={lead.id} />
+                  <input type="hidden" name="test" value={lead.is_test ? "false" : "true"} />
+                  <PendingButton
+                    pendingText="Saving…"
+                    className="rounded-xl bg-[#EDE9FE] px-4 py-2.5 text-sm font-bold text-[#5B21B6] hover:bg-[#DDD6FE] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#5B21B6]"
+                  >
+                    {lead.is_test ? "Not a test lead" : "Mark as test"}
+                  </PendingButton>
+                </form>
+                <form action={archiveLead}>
+                  <input type="hidden" name="leadId" value={lead.id} />
+                  <input type="hidden" name="archive" value={lead.archived_at ? "false" : "true"} />
+                  <PendingButton
+                    pendingText="Saving…"
+                    className="rounded-xl bg-[#F0F0F0] px-4 py-2.5 text-sm font-bold text-[#1E1E1E] hover:bg-[#E5E5E5] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#1E1E1E]"
+                  >
+                    {lead.archived_at ? "Unarchive" : "Archive"}
+                  </PendingButton>
+                </form>
+              </div>
+              {(lead.is_test || lead.archived_at) && (
+                <form action={deleteLead} className="border-t border-[#F0F0F0] pt-4">
+                  <input type="hidden" name="leadId" value={lead.id} />
+                  <label className="flex items-start gap-2 text-sm text-[#3D3D3D]">
+                    <input type="checkbox" name="confirm" value="yes" required className="mt-0.5 h-4 w-4 accent-[#B30500]" />
+                    Delete this lead and all its texts, calls and history for good.
+                  </label>
+                  <PendingButton
+                    pendingText="Deleting…"
+                    className="mt-3 rounded-xl bg-[#FDECEB] px-4 py-2.5 text-sm font-bold text-[#B30500] hover:bg-[#FAD7D4] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#B30500]"
+                  >
+                    Delete lead
+                  </PendingButton>
+                </form>
+              )}
+            </div>
+          </Card>
         </div>
       </div>
     </Shell>

@@ -1,4 +1,6 @@
 // File: src/app/(dashboard)/ai-leads/page.tsx  (REPLACE existing file)
+// Leads list: archived leads hidden (Archived tab), "Test" tab and tag, stats leave out test + archived leads
+// + Opt-outs card: opt-out rate by lead source and by follow-up attempt
 
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -18,6 +20,7 @@ import {
   fullName,
   moveLine,
 } from "./_components/ui";
+import { DetailsMenu } from "./_components/details-menu";
 
 const FILTERS = [
   { key: "all", label: "All" },
@@ -32,6 +35,15 @@ const FILTERS = [
   { key: "unreachable", label: "Unreachable" },
   { key: "booked", label: "Booked" },
   { key: "with_sales", label: "With sales" },
+  { key: "test", label: "Test" },
+  { key: "archived", label: "Archived" },
+];
+// Tabs always shown; the rest go in the "More" menu (grouped)
+const MAIN_TABS = ["all", "live", "transferred", "opted_out", "unresponsive"];
+const MORE_GROUPS = [
+  ["missed_transfer", "prefers_contact", "unreachable", "booked", "with_sales"],
+  ["excluded", "no_consent"],
+  ["test", "archived"],
 ];
 const LIVE = [
   "new",
@@ -81,6 +93,23 @@ interface SourceRow {
   transfer_rate_pct: number | null;
 }
 
+interface OptOutSourceRow {
+  source: string;
+  contacted: number;
+  opted_out: number;
+  opted_out_on_call: number;
+  opted_out_by_text: number;
+  opt_out_pct: number | null;
+}
+
+interface OptOutAttemptRow {
+  attempt_no: number;
+  reached: number;
+  opted_out: number;
+  opt_out_pct: number | null;
+  share_of_opt_outs: number | null;
+}
+
 interface LeadRow {
   id: string;
   created_at: string;
@@ -98,6 +127,16 @@ interface LeadRow {
   next_action: string | null;
   next_action_at: string | null;
   seconds_to_connect: number | null;
+  is_test: boolean;
+  archived_at: string | null;
+}
+
+function TestTag() {
+  return (
+    <span className="ml-2 inline-flex items-center rounded-md bg-[#EDE9FE] px-1.5 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-[#5B21B6]">
+      Test
+    </span>
+  );
 }
 
 export default async function AiLeadsPage({
@@ -113,8 +152,11 @@ export default async function AiLeadsPage({
     .select("*")
     .order("created_at", { ascending: false })
     .limit(200);
+  if (status === "archived") query = query.not("archived_at", "is", null);
+  else query = query.is("archived_at", null);
   if (status === "live") query = query.in("status", LIVE);
-  else if (status !== "all") query = query.eq("status", status);
+  else if (status === "test") query = query.eq("is_test", true);
+  else if (status !== "all" && status !== "archived") query = query.eq("status", status);
   if (q.trim()) {
     const term = q.trim().replace(/[%,()]/g, "");
     const digits = term.replace(/\D/g, "");
@@ -123,7 +165,7 @@ export default async function AiLeadsPage({
     );
   }
 
-  const [metricsRes, sourcesRes, leadsRes, settingsRes] = await Promise.all([
+  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes] = await Promise.all([
     supa.from("v_ai_metrics").select("*").single<Metrics>(),
     supa.from("v_ai_source_report").select("*").returns<SourceRow[]>(),
     query.returns<LeadRow[]>(),
@@ -132,6 +174,8 @@ export default async function AiLeadsPage({
       .select("ai_enabled")
       .eq("id", 1)
       .single<{ ai_enabled: boolean }>(),
+    supa.from("v_ai_optout_by_source").select("*").returns<OptOutSourceRow[]>(),
+    supa.from("v_ai_optout_by_attempt").select("*").returns<OptOutAttemptRow[]>(),
   ]);
 
   const errors = [
@@ -139,6 +183,8 @@ export default async function AiLeadsPage({
     sourcesRes.error,
     leadsRes.error,
     settingsRes.error,
+    optSrcRes.error,
+    optAttRes.error,
   ]
     .filter((e) => e !== null)
     .map((e) => e.message);
@@ -146,7 +192,17 @@ export default async function AiLeadsPage({
   const sources = sourcesRes.data ?? [];
   const leads = leadsRes.data ?? [];
   const aiEnabled = settingsRes.data?.ai_enabled;
+  const optBySource = optSrcRes.data ?? [];
+  const optByAttempt = (optAttRes.data ?? []).filter((r) => r.reached > 0);
+  const optTotal = optBySource.reduce((n, r) => n + r.opted_out, 0);
+  const optContacted = optBySource.reduce((n, r) => n + r.contacted, 0);
+  const optMaxPct = Math.max(1, ...optByAttempt.map((r) => r.opt_out_pct ?? 0));
   const filtered = q.trim() !== "" || status !== "all";
+  const tabHref = (key: string) =>
+    `/ai-leads?status=${key}${q ? `&q=${encodeURIComponent(q)}` : ""}`;
+  const moreActive = MAIN_TABS.includes(status)
+    ? undefined
+    : FILTERS.find((f) => f.key === status);
 
   const total = m?.leads_total ?? 0;
   const share = (n: number) => (total ? Math.round((n / total) * 100) : 0);
@@ -244,7 +300,7 @@ export default async function AiLeadsPage({
       hero={
         <HeroTitle
           title="Leads"
-          description="Every lead the AI is texting and calling, newest first. Times are Eastern."
+          description="Every lead the AI is texting and calling, newest first. Times are Eastern. Test and archived leads are not counted in the numbers."
         />
       }
     >
@@ -324,20 +380,106 @@ export default async function AiLeadsPage({
         )}
       </div>
 
+      {/* Opt-outs */}
+      <Card
+        title="Opt-outs"
+        description={`${optTotal} of ${optContacted} contacted leads opted out${optContacted ? ` (${Math.round((optTotal / optContacted) * 1000) / 10}%)` : ""}. Test and archived leads are not counted.`}
+        className="mb-6"
+      >
+        {optContacted === 0 ? (
+          <Empty title="No data yet" body="Opt-outs show up here once leads are contacted." />
+        ) : (
+          <div className="grid lg:grid-cols-5">
+            {/* By source */}
+            <div className="min-w-0 border-b border-[#F0F0F0] p-5 lg:col-span-2 lg:border-b-0 lg:border-r">
+              <h3 className="text-sm font-bold">By lead source</h3>
+              <p className="mt-0.5 text-xs text-[#737373]">Opted out ÷ leads we texted or called</p>
+              <ul className="mt-4 space-y-4">
+                {optBySource.map((r) => (
+                  <li key={r.source}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span className="truncate font-semibold">{r.source}</span>
+                      <span className="shrink-0 font-extrabold tabular-nums">
+                        {r.opt_out_pct === null ? "—" : `${r.opt_out_pct}%`}
+                      </span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-[#F0F0F0]">
+                      <div
+                        className="h-full rounded-full bg-[#E10600]"
+                        style={{ width: `${Math.min(r.opt_out_pct ?? 0, 100)}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs text-[#737373]">
+                      {r.opted_out} of {r.contacted} contacted
+                      {r.opted_out > 0 && ` · ${r.opted_out_by_text} by text, ${r.opted_out_on_call} on a call`}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* By attempt */}
+            <div className="min-w-0 p-5 lg:col-span-3">
+              <h3 className="text-sm font-bold">By follow-up attempt</h3>
+              <p className="mt-0.5 text-xs text-[#737373]">
+                Opted out on that attempt ÷ leads that reached it. A tall bar shows where follow-up may feel like too much.
+              </p>
+              <div className="mt-4">
+                <div
+                  className="grid h-44 items-end gap-1 sm:gap-1.5"
+                  style={{ gridTemplateColumns: `repeat(${optByAttempt.length || 1}, minmax(0, 1fr))` }}
+                >
+                  {optByAttempt.map((r) => {
+                    const pct = r.opt_out_pct ?? 0;
+                    return (
+                      <div
+                        key={r.attempt_no}
+                        className="flex h-full flex-col items-center justify-end gap-1"
+                        title={`Attempt ${r.attempt_no}: ${r.opted_out} of ${r.reached} opted out`}
+                      >
+                        <span className={`text-[10px] font-bold tabular-nums sm:text-[11px] ${pct > 0 ? "text-[#171717]" : "text-[#C4C4C4]"}`}>
+                          {pct > 0 ? `${Math.round(pct)}%` : "0"}
+                        </span>
+                        <span
+                          className={`w-full max-w-9 rounded-t-md ${pct > 0 ? "bg-[#E10600]" : "bg-[#EDEDED]"}`}
+                          style={{ height: pct > 0 ? `${Math.max((pct / optMaxPct) * 100, 6)}%` : "4px" }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+                <div
+                  className="mt-2 grid gap-1 border-t border-[#F0F0F0] pt-2 sm:gap-1.5"
+                  style={{ gridTemplateColumns: `repeat(${optByAttempt.length || 1}, minmax(0, 1fr))` }}
+                >
+                  {optByAttempt.map((r) => (
+                    <div key={r.attempt_no} className="text-center">
+                      <p className="text-xs font-semibold">{r.attempt_no}</p>
+                      <p className="text-[9px] text-[#A3A3A3] tabular-nums sm:text-[10px]">{r.opted_out}/{r.reached}</p>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 text-center text-[11px] text-[#A3A3A3]">Attempt number · opted out / reached</p>
+              </div>
+            </div>
+          </div>
+        )}
+      </Card>
+
       <div className="grid gap-6 xl:grid-cols-4">
         {/* Leads */}
         <Card className="min-w-0 xl:col-span-3">
           <div className="flex flex-col gap-3 border-b border-[#F0F0F0] p-4 md:px-5">
             <nav
-              className="-mx-1 flex flex-nowrap gap-1 overflow-x-auto px-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="flex flex-wrap items-center gap-1"
               aria-label="Filter leads"
             >
-              {FILTERS.map((f) => {
+              {FILTERS.filter((f) => MAIN_TABS.includes(f.key)).map((f) => {
                 const on = status === f.key;
                 return (
                   <Link
                     key={f.key}
-                    href={`/ai-leads?status=${f.key}${q ? `&q=${encodeURIComponent(q)}` : ""}`}
+                    href={tabHref(f.key)}
                     aria-current={on ? "page" : undefined}
                     className={`shrink-0 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors ${
                       on
@@ -349,6 +491,53 @@ export default async function AiLeadsPage({
                   </Link>
                 );
               })}
+
+              {/* Everything else sits in one "More" menu so the row stays short */}
+              <DetailsMenu key={status} className="relative">
+                <summary
+                  className={`flex cursor-pointer list-none items-center gap-1.5 whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-semibold transition-colors [&::-webkit-details-marker]:hidden ${
+                    moreActive
+                      ? "bg-[#1E1E1E] text-white shadow-sm"
+                      : "text-[#737373] hover:bg-[#F0F0F0] hover:text-[#171717]"
+                  }`}
+                >
+                  {moreActive ? moreActive.label : "More"}
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </summary>
+                <div className="absolute left-0 z-20 mt-2 w-56 rounded-xl border border-[#E5E5E5] bg-white p-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]">
+                  {MORE_GROUPS.map((group, gi) => (
+                    <div
+                      key={gi}
+                      className={gi > 0 ? "mt-1.5 border-t border-[#F0F0F0] pt-1.5" : ""}
+                    >
+                      {FILTERS.filter((f) => group.includes(f.key)).map((f) => {
+                        const on = status === f.key;
+                        return (
+                          <Link
+                            key={f.key}
+                            href={tabHref(f.key)}
+                            aria-current={on ? "page" : undefined}
+                            className={`flex items-center justify-between rounded-lg px-3 py-2 text-sm font-semibold ${
+                              on
+                                ? "bg-[#FDECEB] text-[#E10600]"
+                                : "text-[#3D3D3D] hover:bg-[#F5F5F5]"
+                            }`}
+                          >
+                            {f.label}
+                            {on && (
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                                <path d="M20 6L9 17l-5-5" />
+                              </svg>
+                            )}
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </DetailsMenu>
             </nav>
             <form action="/ai-leads" className="relative w-full">
               <input type="hidden" name="status" value={status} />
@@ -406,6 +595,7 @@ export default async function AiLeadsPage({
                             <div className="min-w-0">
                               <p className="truncate text-sm font-bold">
                                 {name}
+                                {l.is_test && <TestTag />}
                               </p>
                               <p className="text-sm text-[#737373]">
                                 {fmtPhone(l.phone_e164)}
@@ -474,6 +664,7 @@ export default async function AiLeadsPage({
                               <span className="min-w-0">
                                 <span className="block font-bold group-hover:text-[#E10600]">
                                   {name}
+                                  {l.is_test && <TestTag />}
                                 </span>
                                 <span className="block tabular-nums text-[#737373]">
                                   {fmtPhone(l.phone_e164)}
@@ -536,7 +727,7 @@ export default async function AiLeadsPage({
         {/* Sources */}
         <Card
           title="By lead source"
-          className="self-start"
+          className="self-start xl:sticky xl:top-20 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto"
           aside={
             <Link
               href="/ai-leads/sources"
@@ -609,6 +800,7 @@ export default async function AiLeadsPage({
           )}
         </Card>
       </div>
+
     </Shell>
   );
 }
