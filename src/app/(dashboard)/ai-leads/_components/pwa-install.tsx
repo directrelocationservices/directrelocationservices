@@ -73,7 +73,9 @@ export function PwaInstall() {
     <div className="border-b border-[#F0F0F0] bg-[#FFF8F7] md:hidden">
       <div className="mx-auto flex w-full max-w-[1480px] items-center gap-3 px-4 py-2.5">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/icons/icon-192.png" alt="" className="h-9 w-9 shrink-0 rounded-xl" />
+        <span className="grid h-10 w-14 shrink-0 place-items-center rounded-xl border border-[#F0F0F0] bg-white p-1">
+          <img src="/logo.webp" alt="" className="max-h-full max-w-full object-contain" />
+        </span>
         <p className="min-w-0 flex-1 text-[13px] leading-snug text-[#3D3D3D]">
           <b className="text-[#171717]">Get the DRS Leads app.</b>{" "}
           {ios ? (
