@@ -3,6 +3,7 @@
 // + Opt-outs card: opt-out rate by lead source and by follow-up attempt
 // + Date filters (Today, This week, This month, Last month, Custom) with compare to previous period
 // + "Avg. time to first text" (leads that came in after hours are left out)
+// + Card list on phones and tablets, table from 1024px wide
 // + "Needs reply" tab and a red "N new" badge on leads with unread customer replies; updates by itself
 
 import Link from "next/link";
@@ -728,7 +729,7 @@ export default async function AiLeadsPage({
           ) : (
             <>
               {/* Mobile */}
-              <ul className="divide-y divide-[#F0F0F0] md:hidden">
+              <ul className="divide-y divide-[#F0F0F0] lg:hidden">
                 {leads.map((l) => {
                   const name = fullName(l.first_name, l.last_name);
                   return (
@@ -782,7 +783,7 @@ export default async function AiLeadsPage({
               </ul>
 
               {/* Desktop */}
-              <div className="hidden overflow-x-auto md:block">
+              <div className="hidden overflow-x-auto lg:block">
                 <table className="w-full text-sm">
                   <thead className="text-left text-xs font-semibold text-[#A3A3A3]">
                     <tr>

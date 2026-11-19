@@ -1,5 +1,5 @@
-// File: app/(dashboard)/ai-leads/_components/source-forms.tsx  (NEW file)
-// (If your project uses a src/ folder, put it in src/app/(dashboard)/ai-leads/_components/source-forms.tsx)
+// File: src/app/(dashboard)/ai-leads/_components/source-forms.tsx  (REPLACE existing file)
+// + phone numbers and the "Default" tag wrap on small phones instead of running off the screen
 //
 // Lead source rows, "Edit numbers" and "Add a source" forms on the Settings page.
 // Mistakes (wrong number, duplicate name) show as a red line under the form, not an error page.
@@ -284,7 +284,7 @@ function Num({
   return (
     <div className={`min-w-0 ${className}`}>
       {!bare && <p className="text-[11px] font-semibold uppercase tracking-wide text-[#A3A3A3]">{label}</p>}
-      <p className="mt-0.5 flex items-center gap-1.5 truncate text-sm tabular-nums">
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm tabular-nums">
         <span className={value ? "font-semibold text-[#171717]" : "text-[#737373]"}>{value ?? fallback}</span>
         {!value && <span className="rounded bg-[#F1F1F1] px-1.5 py-px text-[10px] font-bold uppercase text-[#737373]">Default</span>}
       </p>

@@ -1,4 +1,5 @@
 // File: src/app/(dashboard)/ai-leads/sources/page.tsx  (REPLACE existing file)
+// + "AI outreach" card stacks on phones (text no longer squeezed into a thin column)
 
 import { db } from "@/lib/ai-leads/supabase";
 import { setAiEnabled, setDisclosure } from "../actions";
@@ -98,7 +99,7 @@ export default async function SettingsPage() {
                 )}
               </svg>
             </span>
-            <div className="min-w-0 flex-1">
+            <div className="min-w-[10rem] flex-1">
               <h2 className="text-base font-extrabold">{aiOn ? "AI outreach is on" : "AI outreach is paused"}</h2>
               <p className="mt-0.5 text-sm text-[#737373]">
                 {aiOn
@@ -106,12 +107,12 @@ export default async function SettingsPage() {
                   : "No texts or calls are going out. New leads are still saved and wait in line until you turn it back on."}
               </p>
             </div>
-            <form action={setAiEnabled}>
+            <form action={setAiEnabled} className="w-full sm:w-auto">
               <input type="hidden" name="enabled" value={aiOn ? "false" : "true"} />
               <PendingButton
                 tone={aiOn ? "dark" : "light"}
                 pendingText={aiOn ? "Pausing…" : "Turning on…"}
-                className={`rounded-xl px-4 py-2.5 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E10600] ${
+                className={`w-full rounded-xl px-4 py-2.5 text-sm font-bold focus-visible:outline-2 sm:w-auto focus-visible:outline-offset-2 focus-visible:outline-[#E10600] ${
                   aiOn
                     ? "border border-[#D4D4D4] bg-white text-[#3D3D3D] hover:border-[#1E1E1E] hover:bg-[#1E1E1E] hover:text-white"
                     : "bg-[#E10600] text-white hover:bg-[#C00500]"

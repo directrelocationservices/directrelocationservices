@@ -1,6 +1,7 @@
 // File: src/app/(dashboard)/ai-leads/_components/ui.tsx  (REPLACE existing file)
 // Header fits small phones (360px): smaller logo and tabs below 400px wide.
 // + "Get the app" bar on phones (PWA install), see pwa-install.tsx
+// + Card headers: the badge/button on the right moves under the title on small phones
 
 import Link from "next/link";
 import { Barlow, Plus_Jakarta_Sans } from "next/font/google";
@@ -353,8 +354,8 @@ export function Card({
       className={`rounded-2xl border border-[#E5E5E5] bg-white shadow-[0_1px_2px_rgba(0,0,0,0.04),0_10px_28px_-14px_rgba(0,0,0,0.18)] ${className}`}
     >
       {title && (
-        <div className="flex items-start justify-between gap-4 border-b border-[#F0F0F0] px-5 py-4">
-          <div className="flex gap-3">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2 border-b border-[#F0F0F0] px-5 py-4">
+          <div className="flex min-w-[12rem] flex-1 gap-3">
             <span
               className="mt-1 h-4 w-1.5 shrink-0 -skew-x-[20deg] bg-[#E10600]"
               aria-hidden

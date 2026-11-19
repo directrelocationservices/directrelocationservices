@@ -1,6 +1,7 @@
 // File: src/app/(dashboard)/ai-leads/[id]/page.tsx  (REPLACE existing file)
 // Lead page: Re-enable card for opted-out numbers, plus "Test & archive" card (mark as test, archive, delete)
 // + "Time to first text" row
+// + Lead details wrap long values on phones (no more cut-off emails / cities)
 // + Conversation: every text labeled Customer / AI / Staff (with who sent it), AI calls in between,
 //   reply box (same Twilio number), Pause AI / Resume AI, updates by itself every 8 seconds
 
@@ -349,14 +350,14 @@ export default async function LeadDetailPage({
                 </p>
               </div>
             </div>
-            <dl className="grid sm:grid-cols-2">
+            <dl className="grid grid-cols-[minmax(0,1fr)] sm:grid-cols-[repeat(2,minmax(0,1fr))]">
               {details.map(([label, value]) => (
                 <div
                   key={label}
                   className="flex justify-between gap-4 border-b border-[#F0F0F0] px-5 py-3 text-sm sm:odd:border-r"
                 >
                   <dt className="shrink-0 text-[#737373]">{label}</dt>
-                  <dd className="truncate text-right font-semibold">
+                  <dd className="min-w-0 break-words text-right font-semibold">
                     {value || (
                       <span className="font-normal text-[#A3A3A3]">—</span>
                     )}
