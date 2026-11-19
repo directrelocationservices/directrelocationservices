@@ -1,5 +1,8 @@
 // File: src/app/(dashboard)/ai-leads/[id]/page.tsx  (REPLACE existing file)
 // Lead page: Re-enable card for opted-out numbers, plus "Test & archive" card (mark as test, archive, delete)
+// + "Time to first text" row
+// + Conversation: every text labeled Customer / AI / Staff (with who sent it), AI calls in between,
+//   reply box (same Twilio number), Pause AI / Resume AI, updates by itself every 8 seconds
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -22,6 +25,10 @@ import {
   place,
 } from "../_components/ui";
 import { PendingButton } from "../_components/pending-button";
+import { setAiPaused } from "../conversation-actions";
+import { ReplyBox } from "../_components/reply-box";
+import { LiveRefresh } from "../_components/live-refresh";
+import { ThreadScroll } from "../_components/thread-scroll";
 
 interface Activity {
   at: string;
@@ -57,6 +64,27 @@ const KIND: Record<
   },
 };
 
+interface ThreadMessage {
+  id: string;
+  at: string;
+  sender: "customer" | "ai" | "staff";
+  staff_name: string | null;
+  body: string | null;
+  status: string | null;
+  error: string | null;
+}
+
+/** One row of the conversation: a text, or an AI call / transfer in between */
+type ThreadItem =
+  | { type: "text"; at: string; m: ThreadMessage }
+  | { type: "event"; at: string; a: Activity };
+
+const SENDER = {
+  customer: { label: "Customer", bubble: "rounded-bl-md border border-[#E5E5E5] bg-white text-[#171717]" },
+  ai: { label: "AI", bubble: "rounded-br-md bg-[#1E1E1E] text-white" },
+  staff: { label: "Staff", bubble: "rounded-br-md bg-[#FDECEB] text-[#171717] ring-1 ring-[#F8D4D1]" },
+} as const;
+
 const TASK_LABEL: Record<string, string> = {
   sms: "Text",
   call: "AI call",
@@ -71,7 +99,10 @@ export default async function LeadDetailPage({
   const { id } = await params;
   const supa = db();
 
-  const [leadRes, activityRes, tasksRes] = await Promise.all([
+  // Opening the lead page marks the customer's replies as read
+  await supa.rpc("ai_mark_thread_read", { p_lead: id });
+
+  const [leadRes, activityRes, tasksRes, threadRes] = await Promise.all([
     supa.from("v_ai_leads").select("*").eq("id", id).maybeSingle(),
     supa
       .from("v_ai_activity")
@@ -85,9 +116,10 @@ export default async function LeadDetailPage({
       .eq("lead_id", id)
       .eq("status", "pending")
       .order("run_at"),
+    supa.rpc("ai_lead_thread", { p_lead: id }),
   ]);
 
-  const errors = [leadRes.error, activityRes.error, tasksRes.error]
+  const errors = [leadRes.error, activityRes.error, tasksRes.error, threadRes.error]
     .filter((e) => e !== null)
     .map((e) => e.message);
   if (errors.length) {
@@ -101,6 +133,21 @@ export default async function LeadDetailPage({
   const lead = leadRes.data;
   if (!lead) notFound();
   const activity = activityRes.data ?? [];
+  const messages = (threadRes.data ?? []) as ThreadMessage[];
+  // Texts from the thread + calls/transfers from the activity log, in time order
+  const thread: ThreadItem[] = [
+    ...messages.map((m) => ({ type: "text" as const, at: m.at, m })),
+    ...activity
+      .filter((a) => a.kind === "call" || a.kind === "transfer")
+      .map((a) => ({ type: "event" as const, at: a.at, a })),
+  ].sort((x, y) => new Date(x.at).getTime() - new Date(y.at).getTime());
+  const aiPaused = Boolean(lead.ai_paused_at);
+  const replyBlocked =
+    !lead.phone_e164 || lead.phone_e164 === "invalid"
+      ? "This lead has no valid phone number, so it can't be texted."
+      : lead.status === "opted_out"
+        ? "This number opted out of texts. Re-enable it on the right first, only if the customer asked for messages again."
+        : null;
   const tasks = tasksRes.data ?? [];
   const name = fullName(lead.first_name, lead.last_name);
   const canOptOut = !["opted_out", "invalid"].includes(lead.status);
@@ -132,6 +179,13 @@ export default async function LeadDetailPage({
     ["Came in through", channel],
     ["Granot job", lead.granot_job_number],
     ["Received", fmtTime(lead.created_at)],
+    [
+      "Time to first text",
+      lead.first_text_at
+        ? fmtSeconds(lead.seconds_to_first_text) +
+          (lead.first_text_waited ? " (came in after hours, sent when contact hours opened)" : "")
+        : null,
+    ],
     ["Attempts", String(lead.attempt_count)],
     [
       "Follow-up attempt",
@@ -206,8 +260,84 @@ export default async function LeadDetailPage({
 
   return (
     <Shell active="leads" hero={hero}>
+      <LiveRefresh seconds={8} />
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="min-w-0 space-y-6 xl:col-span-2">
+          <Card
+            title="Conversation"
+            description="Every text with this customer, plus the AI calls in between. Updates by itself."
+            aside={
+              <form action={setAiPaused} className="shrink-0">
+                <input type="hidden" name="leadId" value={lead.id} />
+                <input type="hidden" name="pause" value={aiPaused ? "false" : "true"} />
+                <PendingButton
+                  pendingText={aiPaused ? "Resuming…" : "Pausing…"}
+                  tone={aiPaused ? "light" : "dark"}
+                  title={aiPaused ? "Hand this lead back to the AI" : "Stop the AI texting, calling and answering this lead"}
+                  className={`whitespace-nowrap rounded-full px-3.5 py-1.5 text-xs font-bold focus-visible:outline-2 focus-visible:outline-offset-2 ${
+                    aiPaused
+                      ? "bg-[#16A34A] text-white hover:bg-[#15803D] focus-visible:outline-[#16A34A]"
+                      : "bg-[#FFF4DB] text-[#B45309] hover:bg-[#FDE9B8] focus-visible:outline-[#B45309]"
+                  }`}
+                >
+                  {aiPaused ? "Resume AI" : "Pause AI"}
+                </PendingButton>
+              </form>
+            }
+          >
+            <p
+              className={`flex items-start gap-2 border-b px-5 py-2.5 text-xs ${
+                aiPaused ? "border-[#FBE3B0] bg-[#FFFBF0] text-[#92400E]" : "border-[#F0F0F0] text-[#525252]"
+              }`}
+            >
+              <span
+                className={`mt-1 h-2 w-2 shrink-0 rounded-full ${aiPaused ? "bg-[#F59E0B]" : "bg-[#16A34A]"}`}
+                aria-hidden
+              />
+              {aiPaused ? (
+                <span>
+                  <b>AI paused</b>
+                  {lead.ai_paused_by ? ` by ${lead.ai_paused_by}` : ""}, {fmtTime(lead.ai_paused_at)} ET. It won&apos;t
+                  text, call or answer this customer. Resume AI picks the follow-ups up where they stopped.
+                </span>
+              ) : (
+                <span>
+                  <b>AI on.</b> It follows up and answers this customer, and pauses by itself when someone on
+                  the team sends a text.
+                </span>
+              )}
+            </p>
+            {thread.length === 0 ? (
+              <p className="px-5 py-10 text-center text-sm text-[#737373]">
+                No texts or calls yet.
+              </p>
+            ) : (
+              <ThreadScroll count={thread.length}>
+                <ol className="space-y-3 bg-[#FAFAFA] px-3 py-5 md:px-5">
+                  {thread.map((item, i) => {
+                    const day = fmtDay(item.at);
+                    const newDay = i === 0 || fmtDay(thread[i - 1].at) !== day;
+                    return (
+                      <li key={item.type === "text" ? item.m.id : `e${i}`}>
+                        {newDay && (
+                          <p className="mb-3 mt-1 text-center text-[11px] font-bold uppercase tracking-wide text-[#A3A3A3]">
+                            {day}
+                          </p>
+                        )}
+                        {item.type === "text" ? (
+                          <TextBubble m={item.m} />
+                        ) : (
+                          <EventRow a={item.a} />
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+              </ThreadScroll>
+            )}
+            <ReplyBox leadId={lead.id} aiPaused={aiPaused} disabledReason={replyBlocked} />
+          </Card>
+
           <Card>
             <div className="flex items-center gap-4 border-b border-[#F0F0F0] px-5 py-4">
               <Avatar name={name} size="lg" />
@@ -236,71 +366,6 @@ export default async function LeadDetailPage({
             </dl>
           </Card>
 
-          <Card
-            title="Activity"
-            description="Every text and call for this lead, oldest first."
-          >
-            {activity.length === 0 ? (
-              <p className="px-5 py-10 text-center text-sm text-[#737373]">
-                No texts or calls yet.
-              </p>
-            ) : (
-              <ol className="px-5 py-5">
-                {activity.map((a, i) => {
-                  const k = KIND[a.kind];
-                  const last = i === activity.length - 1;
-                  return (
-                    <li
-                      key={i}
-                      className={`relative flex gap-4 ${last ? "" : "pb-6"}`}
-                    >
-                      {!last && (
-                        <span
-                          className="absolute bottom-0 left-[17px] top-10 w-0.5 rounded bg-[#F0F0F0]"
-                          aria-hidden
-                        />
-                      )}
-                      <span
-                        className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${k.icon}`}
-                      >
-                        <KindIcon kind={a.kind} />
-                      </span>
-                      <div className="min-w-0 flex-1 pt-1">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
-                          <p>
-                            <span className="font-bold">{k.label}</span>
-                            {a.status && (
-                              <span className="text-[#737373]">
-                                , {a.status.replace(/_/g, " ")}
-                              </span>
-                            )}
-                          </p>
-                          <time className="text-xs text-[#737373]">
-                            {fmtTime(a.at)}
-                          </time>
-                        </div>
-                        {a.detail && (
-                          <p
-                            className={`mt-2 max-w-2xl whitespace-pre-wrap rounded-xl border px-3.5 py-2.5 text-sm leading-relaxed ${k.bubble}`}
-                          >
-                            {a.detail}
-                          </p>
-                        )}
-                        {a.recording_url && (
-                          <audio
-                            controls
-                            preload="none"
-                            src={recordingSrc(a.recording_url)}
-                            className="mt-2 h-9 w-full max-w-md"
-                          />
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ol>
-            )}
-          </Card>
         </div>
 
         <div className="space-y-6">
@@ -429,6 +494,17 @@ export default async function LeadDetailPage({
   );
 }
 
+/** Short duration that also reads well for a few seconds: "3 sec", "2 min 5 sec", "4 h 10 min". */
+function fmtSeconds(sec: number | null | undefined) {
+  if (sec === null || sec === undefined) return "—";
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} sec`;
+  if (s < 3600) return `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} sec` : ""}`;
+  const h = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  return `${h} h${mins ? ` ${mins} min` : ""}`;
+}
+
 /** Vapi recordings are private: play them through our own route, which gets a signed link.
  *  The file name starts with the Vapi call id, e.g. ".../01a15d22-758b-788c-8cd6-1da3236beaf4-1792...-mono.wav" */
 function recordingSrc(url: string) {
@@ -469,5 +545,75 @@ function KindIcon({ kind }: { kind: Activity["kind"] }) {
       <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
       {kind === "sms_inbound" && <path d="M8 10h8" />}
     </svg>
+  );
+}
+function fmtDay(iso: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  }).format(new Date(iso));
+}
+
+function fmtClock(iso: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(iso));
+}
+
+function TextBubble({ m }: { m: ThreadMessage }) {
+  const s = SENDER[m.sender] ?? SENDER.ai;
+  const mine = m.sender !== "customer";
+  const failed = m.status === "failed" || m.status === "undelivered";
+  const who = m.sender === "staff" ? `Staff${m.staff_name ? ` · ${m.staff_name}` : ""}` : s.label;
+  return (
+    <div className={`flex ${mine ? "justify-end" : "justify-start"}`}>
+      <div className={`flex max-w-[88%] flex-col md:max-w-[75%] ${mine ? "items-end" : "items-start"}`}>
+        <p className="mb-1 flex items-center gap-1.5 px-1 text-[11px] font-bold text-[#737373]">
+          <span
+            className={`h-1.5 w-1.5 rounded-full ${
+              m.sender === "customer" ? "bg-[#D97706]" : m.sender === "staff" ? "bg-[#E10600]" : "bg-[#1E1E1E]"
+            }`}
+            aria-hidden
+          />
+          {who}
+        </p>
+        <p className={`whitespace-pre-wrap break-words rounded-2xl px-3.5 py-2.5 text-[15px] leading-relaxed ${s.bubble}`}>
+          {m.body || <span className="italic opacity-70">(no text)</span>}
+        </p>
+        <p className={`mt-1 px-1 text-[11px] ${failed ? "font-semibold text-[#B30500]" : "text-[#A3A3A3]"}`}>
+          {fmtClock(m.at)} ET
+          {mine && m.status ? ` · ${m.status.replace(/_/g, " ")}` : ""}
+          {failed && m.error ? ` (${m.error})` : ""}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function EventRow({ a }: { a: Activity }) {
+  const k = KIND[a.kind];
+  return (
+    <div className="flex flex-col items-center gap-2 py-1">
+      <div className="flex max-w-full items-center gap-2 rounded-full border border-[#EBEBEB] bg-white px-3 py-1.5 text-xs text-[#525252] shadow-sm">
+        <span className={`grid h-6 w-6 shrink-0 place-items-center rounded-full ${k.icon}`}>
+          <KindIcon kind={a.kind} />
+        </span>
+        <span className="font-bold">{k.label}</span>
+        {a.status && <span className="truncate">· {a.status.replace(/_/g, " ")}</span>}
+        <span className="shrink-0 text-[#A3A3A3]">· {fmtClock(a.at)}</span>
+      </div>
+      {a.detail && (
+        <p className="max-w-xl whitespace-pre-wrap rounded-xl border border-[#EBEBEB] bg-white px-3 py-2 text-xs leading-relaxed text-[#525252]">
+          {a.detail}
+        </p>
+      )}
+      {a.recording_url && (
+        <audio controls preload="none" src={recordingSrc(a.recording_url)} className="h-9 w-full max-w-sm" />
+      )}
+    </div>
   );
 }

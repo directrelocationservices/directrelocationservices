@@ -2,6 +2,8 @@
 // Leads list: archived leads hidden (Archived tab), "Test" tab and tag, stats leave out test + archived leads
 // + Opt-outs card: opt-out rate by lead source and by follow-up attempt
 // + Date filters (Today, This week, This month, Last month, Custom) with compare to previous period
+// + "Avg. time to first text" (leads that came in after hours are left out)
+// + "Needs reply" tab and a red "N new" badge on leads with unread customer replies; updates by itself
 
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -22,10 +24,12 @@ import {
   moveLine,
 } from "./_components/ui";
 import { DetailsMenu } from "./_components/details-menu";
+import { LiveRefresh } from "./_components/live-refresh";
 import { RANGES, change, rangeArgs, resolveRange } from "./date-range";
 
 const FILTERS = [
   { key: "all", label: "All" },
+  { key: "needs_reply", label: "Needs reply" },
   { key: "live", label: "In progress" },
   { key: "transferred", label: "Transferred" },
   { key: "missed_transfer", label: "Missed transfer" },
@@ -41,7 +45,7 @@ const FILTERS = [
   { key: "archived", label: "Archived" },
 ];
 // Tabs always shown; the rest go in the "More" menu (grouped)
-const MAIN_TABS = ["all", "live", "transferred", "opted_out", "unresponsive"];
+const MAIN_TABS = ["all", "needs_reply", "live", "transferred", "opted_out", "unresponsive"];
 const MORE_GROUPS = [
   ["missed_transfer", "prefers_contact", "unreachable", "booked", "with_sales"],
   ["excluded", "no_consent"],
@@ -82,6 +86,7 @@ interface Metrics {
   conversion_pct: number | null;
   avg_seconds_to_connect: number | null;
   contacted: number | null;
+  avg_seconds_to_first_text: number | null;
 }
 
 interface SourceRow {
@@ -131,6 +136,30 @@ interface LeadRow {
   seconds_to_connect: number | null;
   is_test: boolean;
   archived_at: string | null;
+  unread_count: number;
+  ai_paused_at: string | null;
+}
+
+/** Short duration that also reads well for a few seconds: "3 sec", "2 min 5 sec", "4 h 10 min". */
+function fmtSeconds(sec: number | null | undefined) {
+  if (sec === null || sec === undefined) return "—";
+  const s = Math.max(0, Math.round(sec));
+  if (s < 60) return `${s} sec`;
+  if (s < 3600) return `${Math.floor(s / 60)} min${s % 60 ? ` ${s % 60} sec` : ""}`;
+  const h = Math.floor(s / 3600);
+  const mins = Math.floor((s % 3600) / 60);
+  return `${h} h${mins ? ` ${mins} min` : ""}`;
+}
+
+/** Red "2 new" badge for unread customer replies */
+function UnreadTag({ n }: { n: number }) {
+  if (!n) return null;
+  return (
+    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#E10600] px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-white">
+      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" aria-hidden />
+      {n} new
+    </span>
+  );
 }
 
 function TestTag() {
@@ -169,9 +198,10 @@ export default async function AiLeadsPage({
     .limit(200);
   if (status === "archived") query = query.not("archived_at", "is", null);
   else query = query.is("archived_at", null);
-  if (status === "live") query = query.in("status", LIVE);
+  if (status === "needs_reply") query = query.gt("unread_count", 0);
+  else if (status === "live") query = query.in("status", LIVE);
   else if (status === "test") query = query.eq("is_test", true);
-  else if (status !== "all" && status !== "archived") query = query.eq("status", status);
+  else if (status !== "all" && status !== "archived" && status !== "needs_reply") query = query.eq("status", status);
   if (R.current) {
     query = query.gte("created_at", R.current.from.toISOString()).lt("created_at", R.current.to.toISOString());
   }
@@ -184,7 +214,7 @@ export default async function AiLeadsPage({
   }
 
   const cur = rangeArgs(R.current);
-  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes, prevRes] = await Promise.all([
+  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes, prevRes, unreadRes] = await Promise.all([
     supa.rpc("ai_metrics_range", cur).single(),
     supa.rpc("ai_source_report_range", cur),
     query.returns<LeadRow[]>(),
@@ -198,6 +228,11 @@ export default async function AiLeadsPage({
     comparing
       ? supa.rpc("ai_metrics_range", rangeArgs(R.previous)).single()
       : Promise.resolve({ data: null as Metrics | null, error: null }),
+    supa
+      .from("v_ai_leads")
+      .select("id", { count: "exact", head: true })
+      .is("archived_at", null)
+      .gt("unread_count", 0),
   ]);
 
   const errors = [
@@ -208,6 +243,7 @@ export default async function AiLeadsPage({
     optSrcRes.error,
     optAttRes.error,
     prevRes.error,
+    unreadRes.error,
   ]
     .filter((e) => e !== null)
     .map((e) => e.message);
@@ -216,6 +252,7 @@ export default async function AiLeadsPage({
   const sources = (sourcesRes.data ?? []) as SourceRow[];
   const leads = leadsRes.data ?? [];
   const aiEnabled = settingsRes.data?.ai_enabled;
+  const needsReply = unreadRes.count ?? 0;
   const optBySource = (optSrcRes.data ?? []) as OptOutSourceRow[];
   const optByAttempt = ((optAttRes.data ?? []) as OptOutAttemptRow[]).filter((r) => r.reached > 0);
   const optTotal = optBySource.reduce((n, r) => n + r.opted_out, 0);
@@ -295,6 +332,13 @@ export default async function AiLeadsPage({
   ];
 
   const facts = [
+    {
+      label: "Avg. time to first text",
+      value:
+        fmtSeconds(m?.avg_seconds_to_first_text) +
+        (prev ? ` (was ${fmtSeconds(prev.avg_seconds_to_first_text)})` : ""),
+      dot: "bg-[#16A34A]",
+    },
     {
       label: "Avg. time to live call",
       value: fmtDuration(m?.avg_seconds_to_connect) + (prev ? ` (was ${fmtDuration(prev.avg_seconds_to_connect)})` : ""),
@@ -385,6 +429,7 @@ export default async function AiLeadsPage({
         />
       }
     >
+      <LiveRefresh seconds={20} />
       {/* Stat cards (overlap the gradient) */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         {stats.map((s) => (
@@ -582,6 +627,15 @@ export default async function AiLeadsPage({
                     }`}
                   >
                     {f.label}
+                    {f.key === "needs_reply" && needsReply > 0 && (
+                      <span
+                        className={`ml-1.5 inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                          on ? "bg-white text-[#E10600]" : "bg-[#E10600] text-white"
+                        }`}
+                      >
+                        {needsReply}
+                      </span>
+                    )}
                   </Link>
                 );
               })}
@@ -600,7 +654,7 @@ export default async function AiLeadsPage({
                     <path d="M6 9l6 6 6-6" />
                   </svg>
                 </summary>
-                <div className="absolute left-0 z-20 mt-2 w-56 rounded-xl border border-[#E5E5E5] bg-white p-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]">
+                <div className="z-20 mt-2 rounded-xl max-sm:fixed max-sm:inset-x-4 sm:absolute sm:left-0 sm:w-56 border border-[#E5E5E5] bg-white p-1.5 shadow-[0_12px_32px_-12px_rgba(0,0,0,0.25)]">
                   {MORE_GROUPS.map((group, gi) => (
                     <div
                       key={gi}
@@ -690,6 +744,7 @@ export default async function AiLeadsPage({
                               <p className="truncate text-sm font-bold">
                                 {name}
                                 {l.is_test && <TestTag />}
+                                <UnreadTag n={l.unread_count} />
                               </p>
                               <p className="text-sm text-[#737373]">
                                 {fmtPhone(l.phone_e164)}
@@ -759,6 +814,7 @@ export default async function AiLeadsPage({
                                 <span className="block font-bold group-hover:text-[#E10600]">
                                   {name}
                                   {l.is_test && <TestTag />}
+                                  <UnreadTag n={l.unread_count} />
                                 </span>
                                 <span className="block tabular-nums text-[#737373]">
                                   {fmtPhone(l.phone_e164)}
@@ -821,7 +877,7 @@ export default async function AiLeadsPage({
         {/* Sources */}
         <Card
           title="By lead source"
-          className="self-start xl:sticky xl:top-20 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto"
+          className="self-start xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto"
           aside={
             <Link
               href="/ai-leads/sources"

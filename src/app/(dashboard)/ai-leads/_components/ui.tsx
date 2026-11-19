@@ -1,4 +1,5 @@
 // File: src/app/(dashboard)/ai-leads/_components/ui.tsx  (REPLACE existing file)
+// Header fits small phones (360px): smaller logo and tabs below 400px wide.
 
 import Link from "next/link";
 import { Barlow, Plus_Jakarta_Sans } from "next/font/google";
@@ -36,7 +37,7 @@ export function Shell({
   children: ReactNode;
 }) {
   const tab = (on: boolean) =>
-    `flex items-center gap-2 rounded-full px-3.5 py-2 text-sm font-bold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E10600] md:px-4 ${
+    `flex items-center gap-1.5 rounded-full px-2.5 py-2 text-sm font-bold min-[400px]:gap-2 min-[400px]:px-3.5 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E10600] md:px-4 ${
       on
         ? "bg-[#E10600] text-white shadow-[0_6px_14px_-6px_rgba(225,6,0,0.6)]"
         : "text-[#525252] hover:bg-[#F2F2F2] hover:text-[#171717]"
@@ -51,14 +52,14 @@ export function Shell({
         <div className="h-1 bg-[#E10600]" aria-hidden />
         <div className="border-b border-[#EBEBEB] bg-white backdrop-blur">
           <header
-            className={`${CONTAINER} flex h-16 items-center gap-3 md:h-[70px] md:gap-5`}
+            className={`${CONTAINER} flex h-16 items-center gap-2 min-[400px]:gap-3 md:h-[70px] md:gap-5`}
           >
             <Link
               href="/ai-leads"
               className="flex shrink-0 items-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#E10600]"
               aria-label="Direct Relocation Services, AI Leads"
             >
-              <Logo className="h-8 w-auto max-w-[110px] object-contain md:h-14 md:max-w-[180px]" />
+              <Logo className="h-8 w-auto max-w-[84px] object-contain min-[400px]:max-w-[110px] md:h-14 md:max-w-[180px]" />
             </Link>
 
             <span
@@ -90,7 +91,7 @@ export function Shell({
                   <circle cx="9" cy="7" r="4" />
                   <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
-                Leads
+                <span className="max-[359px]:sr-only">Leads</span>
               </Link>
               <Link
                 href="/ai-leads/sources"
@@ -110,7 +111,7 @@ export function Shell({
                 >
                   <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6" />
                 </svg>
-                Settings
+                <span className="max-[359px]:sr-only">Settings</span>
               </Link>
             </nav>
 
@@ -144,7 +145,7 @@ export function Shell({
                 <PendingButton
                   pendingText="Signing out…"
                   aria-label="Sign out"
-                  className="whitespace-nowrap rounded-full px-3 py-2 text-sm font-bold text-[#525252] transition-colors hover:bg-[#F2F2F2] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E10600]"
+                  className="whitespace-nowrap rounded-full px-2 py-2 text-sm font-bold min-[400px]:px-3 text-[#525252] transition-colors hover:bg-[#F2F2F2] hover:text-[#171717] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#E10600]"
                 >
                   <svg
                     width="16"
