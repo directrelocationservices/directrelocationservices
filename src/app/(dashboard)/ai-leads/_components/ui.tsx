@@ -1,11 +1,13 @@
 // File: src/app/(dashboard)/ai-leads/_components/ui.tsx  (REPLACE existing file)
 // Header fits small phones (360px): smaller logo and tabs below 400px wide.
+// + "Get the app" bar on phones (PWA install), see pwa-install.tsx
 
 import Link from "next/link";
 import { Barlow, Plus_Jakarta_Sans } from "next/font/google";
 import type { ReactNode } from "react";
 import { signOut } from "@/app/login/actions";
 import { PendingButton } from "./pending-button";
+import { PwaInstall } from "./pwa-install";
 
 export const font = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -166,6 +168,7 @@ export function Shell({
             </div>
           </header>
         </div>
+        <PwaInstall />
       </div>
 
       {/* Charcoal band behind the page title; the first cards overlap its bottom edge */}
