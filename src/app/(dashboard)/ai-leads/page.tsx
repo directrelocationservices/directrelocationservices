@@ -4,6 +4,7 @@
 // + Date filters (Today, This week, This month, Last month, Custom) with compare to previous period
 // + "Avg. time to first text" (leads that came in after hours are left out)
 // + Card list on phones and tablets, table from 1024px wide
+// + Test tab also shows test leads that are archived
 // + "Needs reply" tab and a red "N new" badge on leads with unread customer replies; updates by itself
 
 import Link from "next/link";
@@ -198,7 +199,7 @@ export default async function AiLeadsPage({
     .order("created_at", { ascending: false })
     .limit(200);
   if (status === "archived") query = query.not("archived_at", "is", null);
-  else query = query.is("archived_at", null);
+  else if (status !== "test") query = query.is("archived_at", null); // Test tab shows archived test leads too
   if (status === "needs_reply") query = query.gt("unread_count", 0);
   else if (status === "live") query = query.in("status", LIVE);
   else if (status === "test") query = query.eq("is_test", true);
