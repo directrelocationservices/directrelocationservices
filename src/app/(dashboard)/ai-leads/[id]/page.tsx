@@ -3,7 +3,8 @@
 // + "Time to first text" row
 // + Lead details wrap long values on phones (no more cut-off emails / cities)
 // + Conversation: every text labeled Customer / AI / Staff (with who sent it), AI calls in between,
-//   reply box (same Twilio number), Pause AI / Resume AI, updates by itself every 8 seconds
+//   reply box (same Twilio number), Pause AI / Resume AI
+// + Live updates: reloads only when THIS lead changes (no more reloading every 8 seconds)
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -261,7 +262,7 @@ export default async function LeadDetailPage({
 
   return (
     <Shell active="leads" hero={hero}>
-      <LiveRefresh seconds={8} />
+      <LiveRefresh leadId={lead.id} seconds={15} />
       <div className="grid gap-6 xl:grid-cols-3">
         <div className="min-w-0 space-y-6 xl:col-span-2">
           <Card
