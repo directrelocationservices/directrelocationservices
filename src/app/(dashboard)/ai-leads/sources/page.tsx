@@ -1,7 +1,10 @@
 // File: src/app/(dashboard)/ai-leads/sources/page.tsx  (REPLACE existing file)
 // + "AI outreach" card stacks on phones (text no longer squeezed into a thin column)
+// + "Phone notifications" card: turn on per device, pick new reply / live transfer / wants quote by text-email
 
 import { db } from "@/lib/ai-leads/supabase";
+import { requireUser } from "@/lib/ai-leads/auth";
+import { PushSettings } from "../_components/push-settings";
 import { setAiEnabled, setDisclosure } from "../actions";
 import { Card, ErrorNote, HeroTitle, Shell, fmtTime } from "../_components/ui";
 import { PendingButton } from "../_components/pending-button";
@@ -53,11 +56,19 @@ function todayEt() {
 
 export default async function SettingsPage() {
   const supa = db();
-  const [sourcesRes, settingsRes, hoursRes] = await Promise.all([
+  const user = await requireUser();
+  const [sourcesRes, settingsRes, hoursRes, pushRes] = await Promise.all([
     supa.from("ai_lead_sources").select("*").order("enabled", { ascending: false }).order("name").returns<Source[]>(),
     supa.from("ai_settings").select("*").eq("id", 1).single(),
     supa.from("ai_business_hours").select("*").order("dow").returns<Hours[]>(),
+    supa.rpc("ai_push_get_prefs", { p_user: user.id }),
   ]);
+  const push = (pushRes.data ?? {}) as {
+    new_reply?: boolean;
+    live_transfer?: boolean;
+    prefers_contact?: boolean;
+    devices?: number;
+  };
 
   const errors = [sourcesRes.error, settingsRes.error, hoursRes.error].filter((e) => e !== null).map((e) => e.message);
   const sources = sourcesRes.data ?? [];
@@ -123,6 +134,22 @@ export default async function SettingsPage() {
             </form>
           </div>
         </section>
+
+        {/* ------------------------------------------------ Phone notifications */}
+        <Card
+          title="Phone notifications"
+          description="Get a notification on your phone or computer. Turn it on once on each device. Your choices below apply to all your devices."
+        >
+          <PushSettings
+            vapidKey={process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? null}
+            initialPrefs={{
+              new_reply: push.new_reply ?? true,
+              live_transfer: push.live_transfer ?? true,
+              prefers_contact: push.prefers_contact ?? true,
+            }}
+            devices={push.devices ?? 0}
+          />
+        </Card>
 
         {/* ------------------------------------------------ Lead sources */}
         <Card

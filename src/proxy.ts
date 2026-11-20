@@ -1,5 +1,6 @@
 // File: src/proxy.ts  (REPLACE existing file)
 // + lets the app files (manifest, service worker, icons) load without signing in, so the app can be installed
+// + /api/push/dispatch is called by Supabase (protected by its own secret), not by a signed-in user
 // (If your project uses a src/ folder, put it in src/proxy.ts — next to the app folder)
 // Runs before every page: keeps the login session fresh and sends signed-out visitors to /login.
 
@@ -57,5 +58,5 @@ function withCookies(target: NextResponse, source: NextResponse) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|manifest.webmanifest|sw.js|icons/|api/push/dispatch|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)"],
 };
