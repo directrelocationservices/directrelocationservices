@@ -5,6 +5,7 @@
 // + "Avg. time to first text" (leads that came in after hours are left out)
 // + Card list on phones and tablets, table from 1024px wide
 // + Test tab also shows test leads that are archived
+// + "Uploaded" filter and an UPLOAD tag on leads that came from a CSV upload
 // + "Needs reply" tab and a red "N new" badge on leads with unread customer replies; updates by itself
 
 import Link from "next/link";
@@ -43,6 +44,7 @@ const FILTERS = [
   { key: "unreachable", label: "Unreachable" },
   { key: "booked", label: "Booked" },
   { key: "with_sales", label: "With sales" },
+  { key: "uploaded", label: "Uploaded" },
   { key: "test", label: "Test" },
   { key: "archived", label: "Archived" },
 ];
@@ -137,6 +139,7 @@ interface LeadRow {
   next_action_at: string | null;
   seconds_to_connect: number | null;
   is_test: boolean;
+  origin_channel: string | null;
   archived_at: string | null;
   unread_count: number;
   ai_paused_at: string | null;
@@ -160,6 +163,14 @@ function UnreadTag({ n }: { n: number }) {
     <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-[#E10600] px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-white">
       <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white motion-reduce:animate-none" aria-hidden />
       {n} new
+    </span>
+  );
+}
+
+function UploadTag() {
+  return (
+    <span className="ml-2 inline-flex items-center rounded-full bg-[#E0F2FE] px-2 py-0.5 align-middle text-[10px] font-bold uppercase tracking-wide text-[#0369A1]">
+      Upload
     </span>
   );
 }
@@ -203,6 +214,7 @@ export default async function AiLeadsPage({
   if (status === "needs_reply") query = query.gt("unread_count", 0);
   else if (status === "live") query = query.in("status", LIVE);
   else if (status === "test") query = query.eq("is_test", true);
+  else if (status === "uploaded") query = query.eq("origin_channel", "upload");
   else if (status !== "all" && status !== "archived" && status !== "needs_reply") query = query.eq("status", status);
   if (R.current) {
     query = query.gte("created_at", R.current.from.toISOString()).lt("created_at", R.current.to.toISOString());
@@ -746,6 +758,7 @@ export default async function AiLeadsPage({
                               <p className="truncate text-sm font-bold">
                                 {name}
                                 {l.is_test && <TestTag />}
+                                {l.origin_channel === "upload" && <UploadTag />}
                                 <UnreadTag n={l.unread_count} />
                               </p>
                               <p className="text-sm text-[#737373]">
@@ -816,6 +829,7 @@ export default async function AiLeadsPage({
                                 <span className="block font-bold group-hover:text-[#E10600]">
                                   {name}
                                   {l.is_test && <TestTag />}
+                                {l.origin_channel === "upload" && <UploadTag />}
                                   <UnreadTag n={l.unread_count} />
                                 </span>
                                 <span className="block tabular-nums text-[#737373]">

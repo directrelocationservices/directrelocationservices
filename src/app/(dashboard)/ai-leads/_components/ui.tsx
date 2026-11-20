@@ -1,5 +1,6 @@
 // File: src/app/(dashboard)/ai-leads/_components/ui.tsx  (REPLACE existing file)
-// Header on phones: bigger logo, Leads / Settings tabs show icons only (full labels from 640px).
+// Header on phones: bigger logo, Leads / Uploads / Settings tabs show icons only (full labels from 640px).
+// + "Uploads" tab (CSV lead upload)
 // + "Get the app" bar on phones (PWA install), see pwa-install.tsx
 // + Card headers: the badge/button on the right moves under the title on small phones
 
@@ -34,7 +35,7 @@ export function Shell({
   hero,
   children,
 }: {
-  active: "leads" | "sources" | null;
+  active: "leads" | "uploads" | "sources" | null;
   aiEnabled?: boolean;
   hero?: ReactNode;
   children: ReactNode;
@@ -62,7 +63,7 @@ export function Shell({
               className="flex shrink-0 items-center rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#E10600]"
               aria-label="Direct Relocation Services, AI Leads"
             >
-              <Logo className="h-10 w-auto max-w-[130px] object-contain sm:h-11 sm:max-w-[150px] md:h-14 md:max-w-[180px]" />
+              <Logo className="h-10 w-auto max-w-[110px] object-contain min-[400px]:max-w-[130px] sm:h-11 sm:max-w-[150px] md:h-14 md:max-w-[180px]" />
             </Link>
 
             <span
@@ -95,6 +96,26 @@ export function Shell({
                   <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
                 </svg>
                 <span className="max-sm:sr-only">Leads</span>
+              </Link>
+              <Link
+                href="/ai-leads/uploads"
+                className={tab(active === "uploads")}
+                aria-current={active === "uploads" ? "page" : undefined}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
+                </svg>
+                <span className="max-sm:sr-only">Uploads</span>
               </Link>
               <Link
                 href="/ai-leads/sources"
