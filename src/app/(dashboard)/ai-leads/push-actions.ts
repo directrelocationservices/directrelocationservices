@@ -28,7 +28,13 @@ export async function savePushSubscription(input: {
     p_ua: (input.userAgent ?? "").slice(0, 300),
   });
   const res = data as { ok: boolean } | null;
-  if (error || !res?.ok) return { ok: false, error: "Couldn't save this device. Check PUSH_DISPATCH_SECRET in Vercel and Supabase." };
+  if (error) return { ok: false, error: `Couldn't save this device (database: ${error.message}).` };
+  if (!pushSecret()) return { ok: false, error: "PUSH_DISPATCH_SECRET is missing in Vercel (Production), or the site wasn't redeployed." };
+  if (!res?.ok)
+    return {
+      ok: false,
+      error: `PUSH_DISPATCH_SECRET in Vercel doesn't match Supabase (Vercel value has ${pushSecret().length} characters).`,
+    };
   revalidatePath("/ai-leads/sources");
   return { ok: true };
 }

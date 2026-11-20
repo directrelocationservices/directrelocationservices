@@ -8,7 +8,7 @@
 //   PUSH_DISPATCH_SECRET           long random text, the same one saved in Supabase (ai_push_config)
 
 import "server-only";
-import webpush from "web-push";
+import { sendNotification, setVapidDetails } from "web-push";
 
 export interface PushSub {
   endpoint: string;
@@ -31,17 +31,21 @@ export function pushConfigured() {
   const priv = process.env.VAPID_PRIVATE_KEY;
   const subject = process.env.VAPID_SUBJECT;
   if (!pub || !priv || !subject) return false;
-  webpush.setVapidDetails(subject, pub, priv);
+  setVapidDetails(subject, pub, priv);
   ready = true;
   return true;
 }
 
 export function pushSecret() {
-  return process.env.PUSH_DISPATCH_SECRET ?? "";
+  // trim: a space or new line pasted into Vercel would otherwise break the match
+  return (process.env.PUSH_DISPATCH_SECRET ?? "").trim().replace(/^["']|["']$/g, "");
 }
 
 /** Sends one notification to many devices. Returns devices that no longer exist, so they can be removed. */
-export async function sendPush(subs: PushSub[], payload: PushPayload) {
+export async function sendPush(
+  subs: PushSub[],
+  payload: PushPayload,
+): Promise<{ sent: number; failed: number; gone: string[] }> {
   if (!pushConfigured()) return { sent: 0, failed: subs.length, gone: [] as string[] };
   const body = JSON.stringify({
     title: payload.title,
@@ -55,7 +59,7 @@ export async function sendPush(subs: PushSub[], payload: PushPayload) {
   await Promise.all(
     subs.map(async (s) => {
       try {
-        await webpush.sendNotification(
+        await sendNotification(
           { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
           body,
           { TTL: 60 * 60, urgency: "high" },
