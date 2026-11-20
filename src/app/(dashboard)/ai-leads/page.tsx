@@ -53,7 +53,7 @@ const MAIN_TABS = ["all", "needs_reply", "live", "transferred", "opted_out", "un
 const MORE_GROUPS = [
   ["missed_transfer", "prefers_contact", "unreachable", "booked", "with_sales"],
   ["excluded", "no_consent"],
-  ["test", "archived"],
+  ["uploaded", "test", "archived"],
 ];
 const LIVE = [
   "new",

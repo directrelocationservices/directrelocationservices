@@ -1,6 +1,7 @@
 // File: src/app/(dashboard)/ai-leads/upload-actions.ts  (NEW file)
 //
 // CSV lead upload: check the file (opt-outs, duplicates, bad numbers), then start the follow-up.
+// (Errors now show the database reason, so problems are easy to find.)
 
 "use server";
 
@@ -50,7 +51,7 @@ export async function checkUpload(rows: UploadRow[]): Promise<CheckResult> {
   if (!rows?.length) return { ok: false, error: "The file has no rows." };
   if (rows.length > MAX_ROWS) return { ok: false, error: `Upload at most ${MAX_ROWS.toLocaleString()} rows at a time.` };
   const { data, error } = await db().rpc("ai_upload_check", { p_rows: clean(rows) });
-  if (error) return { ok: false, error: "Couldn't check the file. Please try again." };
+  if (error) return { ok: false, error: `Couldn't check the file (database: ${error.message}).` };
   const d = data as {
     total: number;
     ok: number;
@@ -92,7 +93,7 @@ export async function startUpload(input: {
     p_user: user.email ?? null,
     p_file: (input.fileName ?? "").slice(0, 200),
   });
-  if (error) return { ok: false, error: "Couldn't start the upload. Please try again." };
+  if (error) return { ok: false, error: `Couldn't start the upload (database: ${error.message}).` };
   const res = data as { ok: boolean; reason?: string; created?: number; last_start_day?: string | null };
   if (!res?.ok) return { ok: false, error: res?.reason ?? "Couldn't start the upload." };
   revalidatePath("/ai-leads");
