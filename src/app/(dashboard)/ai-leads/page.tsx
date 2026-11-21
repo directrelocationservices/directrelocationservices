@@ -7,6 +7,7 @@
 // + Test tab also shows test leads that are archived
 // + "Uploaded" filter and an UPLOAD tag on leads that came from a CSV upload
 // + "Needs reply" tab and a red "N new" badge on leads with unread customer replies; updates by itself
+// + Sources set to "not counted" (Equate Warm Calls) stay in the list but are left out of the numbers
 
 import Link from "next/link";
 import type { ReactNode } from "react";
@@ -228,7 +229,7 @@ export default async function AiLeadsPage({
   }
 
   const cur = rangeArgs(R.current);
-  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes, prevRes, unreadRes] = await Promise.all([
+  const [metricsRes, sourcesRes, leadsRes, settingsRes, optSrcRes, optAttRes, prevRes, unreadRes, countRes] = await Promise.all([
     supa.rpc("ai_metrics_range", cur).single(),
     supa.rpc("ai_source_report_range", cur),
     query.returns<LeadRow[]>(),
@@ -247,6 +248,10 @@ export default async function AiLeadsPage({
       .select("id", { count: "exact", head: true })
       .is("archived_at", null)
       .gt("unread_count", 0),
+    supa
+      .from("ai_lead_sources")
+      .select("name, count_in_stats")
+      .returns<{ name: string; count_in_stats: boolean }[]>(),
   ]);
 
   const errors = [
@@ -258,6 +263,7 @@ export default async function AiLeadsPage({
     optAttRes.error,
     prevRes.error,
     unreadRes.error,
+    countRes.error,
   ]
     .filter((e) => e !== null)
     .map((e) => e.message);
@@ -267,7 +273,9 @@ export default async function AiLeadsPage({
   const leads = leadsRes.data ?? [];
   const aiEnabled = settingsRes.data?.ai_enabled;
   const needsReply = unreadRes.count ?? 0;
-  const optBySource = (optSrcRes.data ?? []) as OptOutSourceRow[];
+  const notCounted = new Set((countRes.data ?? []).filter((s) => s.count_in_stats === false).map((s) => s.name));
+  const notCountedList = [...notCounted].sort().join(", ");
+  const optBySource = ((optSrcRes.data ?? []) as OptOutSourceRow[]).filter((r) => !notCounted.has(r.source));
   const optByAttempt = ((optAttRes.data ?? []) as OptOutAttemptRow[]).filter((r) => r.reached > 0);
   const optTotal = optBySource.reduce((n, r) => n + r.opted_out, 0);
   const optContacted = optBySource.reduce((n, r) => n + r.contacted, 0);
@@ -893,6 +901,7 @@ export default async function AiLeadsPage({
         {/* Sources */}
         <Card
           title="By lead source"
+          description={notCountedList ? `Not counted in the numbers: ${notCountedList}.` : undefined}
           className="self-start xl:sticky xl:top-6 xl:max-h-[calc(100vh-3rem)] xl:overflow-y-auto"
           aside={
             <Link
@@ -920,7 +929,11 @@ export default async function AiLeadsPage({
                       <span className="truncate">{s.source}</span>
                     </span>
                     <span className="shrink-0 font-extrabold tabular-nums">
-                      {s.transfer_rate_pct === null ? (
+                      {notCounted.has(s.source) ? (
+                        <span className="rounded-full bg-[#F1F1F1] px-2 py-0.5 text-[11px] font-bold text-[#737373]">
+                          Not counted
+                        </span>
+                      ) : s.transfer_rate_pct === null ? (
                         <span className="font-semibold text-[#A3A3A3]">—</span>
                       ) : (
                         `${s.transfer_rate_pct}%`
@@ -931,7 +944,7 @@ export default async function AiLeadsPage({
                     <div
                       className={`h-full rounded-full ${SOURCE_BARS[i % SOURCE_BARS.length]}`}
                       style={{
-                        width: `${Math.min(s.transfer_rate_pct ?? 0, 100)}%`,
+                        width: notCounted.has(s.source) ? "0%" : `${Math.min(s.transfer_rate_pct ?? 0, 100)}%`,
                       }}
                     />
                   </div>
